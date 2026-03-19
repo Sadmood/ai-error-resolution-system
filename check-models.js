@@ -1,6 +1,6 @@
 // check-models.js
 // ใส่ Key ของคุณตรงนี้
-const apiKey = "AIzaSyDCtVTIzTL5rXhsmWJGZvzkng6J6P6Tfog "; 
+const apiKey = "AIzaSyBxqg6fe1nYmZAV7rxekiffMPrE_l2_ARc"; 
 
 const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
 

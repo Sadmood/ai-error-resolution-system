@@ -24,6 +24,22 @@
     "configuration": {
       "title": "Error Expander Settings",
       "properties": {
+        "errorExpander.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "ใส่ **Google Gemini API Key** ของคุณที่นี่\n\n**วิธีรับ API Key ฟรี:**\n1. ไปที่ [Google AI Studio](https://aistudio.google.com/app/apikey)\n2. ล็อกอินด้วยบัญชี Google\n3. กดปุ่ม **Create API key** ด้านขวาบน \n4. นำรหัสที่ได้มาวางในช่อง"
+        },"errorExpander.model": {
+          "type": "string",
+          "default": "gemini-2.5-flash",
+          "enum": [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-flash",
+            "gemini-flash-lite-latest",
+            "gemma-3-12b-it"
+          ],
+          "description": "เลือกโมเดล AI ที่ต้องการใช้งาน (gemini-2.5-flash ทำงานได้เร็วและมีโควต้าฟรีเยอะที่สุด)"
+        },
         "errorExpander.targetLanguage": {
           "type": "string",
           "default": "Thai",
@@ -43,16 +59,17 @@
             "Hindi"
           ],
           "description": "เลือกภาษาที่ต้องการให้ AI แปลและอธิบาย (Select the language you want the AI to translate and explain)"
-        },"errorExpander.tone": {
-  "type": "string",
-  "default": "Teacher",
-  "enum": [
-    "Teacher",
-    "Senior Dev",
-    "ELI5"
-  ],
-  "description": "เลือกบุคลิก AI: Teacher (ครูใจดี), Senior Dev (รุ่นพี่โหด), ELI5 (สอนเด็ก 5 ขวบ)"
-}
+        },
+        "errorExpander.tone": {
+          "type": "string",
+          "default": "Teacher",
+          "enum": [
+            "Teacher",
+            "Senior Dev",
+            "ELI5"
+          ],
+          "description": "เลือกบุคลิก AI: Teacher (ครูใจดี), Senior Dev (รุ่นพี่โหด), ELI5 (สอนเด็ก 5 ขวบ)"
+        }
       }
     },
     "keybindings": [
