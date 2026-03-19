@@ -3,7 +3,12 @@
   "name": "error-expander-multilingual",
   "displayName": "error-expander-multilingual",
   "description": "Myprojectt",
-  "version": "0.0.1",
+  "version": "1.0.0",
+  "publisher": "Moody",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sadmood"
+  },
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -11,7 +16,7 @@
     "Other"
   ],
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
