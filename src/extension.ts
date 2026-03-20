@@ -1,339 +1,177 @@
 import * as vscode from 'vscode';
-
 import { GoogleGenerativeAI } from "@google/generative-ai";
-
-
 
 export function activate(context: vscode.ExtensionContext) {
 
-
-
     const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-
     statusBarItem.text = "$(sparkle) AI Expander Ready";
-
     statusBarItem.tooltip = "Error Expander Multilingual กำลังทำงาน";
-
     statusBarItem.show();
-
     context.subscriptions.push(statusBarItem);
-
-   
-
+    
     // 1. ระบบ "หลอดไฟ" (Quick Fix)
-
     context.subscriptions.push(
-
         vscode.languages.registerCodeActionsProvider('*', new ErrorExpanderProvider(), {
-
             providedCodeActionKinds: [vscode.CodeActionKind.QuickFix]
-
         })
-
     );
-
-
 
     // 2. ระบบ "เมาส์ชี้" (Hover)
-
     context.subscriptions.push(
-
         vscode.languages.registerHoverProvider('*', new ErrorHoverProvider())
-
     );
-
-
 
     // 3. คำสั่งหลัก
-
     context.subscriptions.push(
-
         vscode.commands.registerCommand('error-expander.explain', async (errorMessage: string, codeContext: string) => {
-
-           
-
+            
             const config = vscode.workspace.getConfiguration('errorExpander');
-
             const apiKey = config.get<string>('apiKey');
 
-
-
             if (!apiKey) {
-
                 vscode.window.showErrorMessage('กรุณาใส่ Gemini API Key ใน Settings ก่อนใช้งาน Error Expander ครับ', 'ไปหน้า Settings').then(selection => {
-
                     if (selection === 'ไปหน้า Settings') {
-
                         vscode.commands.executeCommand('workbench.action.openSettings', 'errorExpander');
-
                     }
-
                 });
-
                 return;
-
             }
 
+            // --- เตรียมสร้างหน้าต่าง Webview ทันที ---
+            const selectedModel = config.get<string>('model') || 'gemini-2.5-flash';
+            const panel = vscode.window.createWebviewPanel(
+                'errorExpanderResult',
+                `AI Explanation (${selectedModel})`, // โชว์ชื่อโมเดลบนแท็บด้วย
+                vscode.ViewColumn.Beside,
+                { enableScripts: true }
+            );
 
+            // ใส่โครงสร้างหน้าเว็บแบบโหลดรอก่อน
+            panel.webview.html = getLoadingWebviewHtml();
 
             vscode.window.withProgress({
-
                 location: vscode.ProgressLocation.Notification,
-
                 title: "AI กำลังวิเคราะห์ Error...",
-
                 cancellable: false
-
             }, async () => {
-
                 try {
-
                     const genAI = new GoogleGenerativeAI(apiKey);
-
-                   
-
-                    // --- [ข้อ 4] ดึงชื่อ Model จาก Settings ---
-
-                    const selectedModel = config.get<string>('model') || 'gemini-2.5-flash';
-
                     const model = genAI.getGenerativeModel({ model: selectedModel });
 
-
-
                     const targetLanguage = config.get<string>('targetLanguage') || 'Thai';
-
                     const tone = config.get<string>('tone') || 'Teacher';
-
-                   
-
+                    
                     let toneInstruction = "อธิบายอย่างละเอียด ใจดี เป็นขั้นตอน เหมือนครูสอนนักเรียน";
-
                     if (tone === 'Senior Dev') {
-
                         toneInstruction = "ตอบสั้นๆ ห้วนๆ ตรงประเด็น ใช้ศัพท์เทคนิค ไม่ต้องเกริ่นเยิ่นเย้อ เหมือน Senior Dev คุยกับ Junior";
-
                     } else if (tone === 'ELI5') {
-
                         toneInstruction = "อธิบายง่ายมากๆ ห้ามใช้ศัพท์ยาก เปรียบเทียบกับสิ่งรอบตัว เหมือนอธิบายให้เด็ก 5 ขวบฟัง";
-
                     }
 
-
-
                     const prompt = `
-
                         คุณเป็นผู้ช่วยโปรแกรมเมอร์ขั้นเทพ
-
-                       
-
+                        
                         ข้อมูล Error:
-
                         1. ข้อความ Error: "${errorMessage}"
-
-                       
-
+                        
                         2. โค้ดที่เกี่ยวข้อง (บรรทัดที่มี >> คือบรรทัดที่แจ้ง Error):
-
                         \`\`\`
-
                         ${codeContext}
-
                         \`\`\`
-
-                       
-
+                        
                         คำสั่ง:
-
                         - อธิบายสาเหตุของ Error
-
                         - แนะนำวิธีแก้ไข
-
                         - ขอคำตอบเป็นภาษา: ${targetLanguage}
-
                         - สไตล์การตอบ: ${toneInstruction}
-
                         - ถ้ามีโค้ดแก้ไข ให้ใส่ Code Block มาด้วย
-
                     `;
 
+                    // --- ใช้ระบบ Streaming ค่อยๆ ดึงข้อมูล ---
+                    const result = await model.generateContentStream(prompt);
+                    let fullText = "";
 
-
-                    const result = await model.generateContent(prompt);
-
-                    const response = await result.response;
-
-                    const responseText = response.text();
-
-
-
-                    const panel = vscode.window.createWebviewPanel(
-
-                        'errorExpanderResult',
-
-                        `AI Explanation (${selectedModel})`, // โชว์ชื่อโมเดลบนแท็บด้วย
-
-                        vscode.ViewColumn.Beside,
-
-                        { enableScripts: true }
-
-                    );
-
-
-
-
-
-                    panel.webview.html = getWebviewContent(responseText);
-
-
+                    // วนลูปรับข้อความที่ AI ค่อยๆ ส่งมา
+                    for await (const chunk of result.stream) {
+                        fullText += chunk.text();
+                        // แปลงข้อความเป็น HTML แล้วส่งไปอัปเดตหน้าจอทันที
+                        panel.webview.postMessage({ command: 'update', html: parseResponseToHtml(fullText) });
+                    }
 
                 } catch (error) {
-
                     vscode.window.showErrorMessage(`เกิดข้อผิดพลาดจาก AI: ${error}`);
-
+                    panel.webview.postMessage({ command: 'update', html: `<span style="color:#ff5f56;">เกิดข้อผิดพลาด: ${error}</span>` });
                 }
-
             });
-
         })
-
     );
-
 }
 
-
-
 // ---------------------------------------------------------
-
-// [ข้อ 1] ฟังก์ชันช่วยดึงโค้ดให้กว้างขึ้น (บน 3 บรรทัด ล่าง 3 บรรทัด)
-
+// ฟังก์ชันช่วยดึงโค้ดให้กว้างขึ้น (บน 3 บรรทัด ล่าง 3 บรรทัด)
 // ---------------------------------------------------------
-
 function getExpandedCodeContext(document: vscode.TextDocument, errorLineIndex: number): string {
-
     const startLine = Math.max(0, errorLineIndex - 3); // ถอยขึ้นไป 3 บรรทัด (ไม่ให้ติดลบ)
-
     const endLine = Math.min(document.lineCount - 1, errorLineIndex + 3); // ลงมา 3 บรรทัด (ไม่ให้เกินบรรทัดสุดท้าย)
-
-   
-
+    
     let codeContext = '';
-
     for (let i = startLine; i <= endLine; i++) {
-
         // ใส่เครื่องหมาย >> หน้าบรรทัดที่พัง เพื่อให้ AI สังเกตเห็นง่ายๆ
-
         const prefix = (i === errorLineIndex) ? ">> " : "   ";
-
         codeContext += `${prefix}${i + 1}: ${document.lineAt(i).text}\n`;
-
     }
-
     return codeContext;
-
 }
-
-
 
 // คลาสสำหรับระบบ "หลอดไฟ" (Quick Fix)
-
 class ErrorExpanderProvider implements vscode.CodeActionProvider {
-
     provideCodeActions(document: vscode.TextDocument, range: vscode.Range, context: vscode.CodeActionContext): vscode.ProviderResult<(vscode.Command | vscode.CodeAction)[]> {
-
-       
-
+        
         if (context.diagnostics.length === 0) return [];
-
-       
-
+        
         const error = context.diagnostics[0];
-
         const errorLineIndex = error.range.start.line;
-
-       
-
-        // --- เปลี่ยนมาใช้ฟังก์ชันดึงโค้ดแบบกว้าง ---
-
+        
         const codeContext = getExpandedCodeContext(document, errorLineIndex);
-
-
 
         const action = new vscode.CodeAction(`💡 อธิบาย Error นี้ด้วย AI`, vscode.CodeActionKind.QuickFix);
-
         action.command = {
-
             command: 'error-expander.explain',
-
             title: 'Explain Error',
-
             arguments: [error.message, codeContext]
-
         };
-
         return [action];
-
     }
-
 }
-
-
 
 // คลาสสำหรับระบบ "เมาส์ชี้" (Hover)
-
 class ErrorHoverProvider implements vscode.HoverProvider {
-
     provideHover(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken): vscode.ProviderResult<vscode.Hover> {
-
-       
-
+        
         const diagnostics = vscode.languages.getDiagnostics(document.uri);
-
         const error = diagnostics.find(diag => diag.range.contains(position));
-
         if (!error) return null;
 
-
-
         const errorLineIndex = error.range.start.line;
-
-       
-
-        // --- เปลี่ยนมาใช้ฟังก์ชันดึงโค้ดแบบกว้าง ---
-
+        
         const codeContext = getExpandedCodeContext(document, errorLineIndex);
 
-
-
         const args = [error.message, codeContext];
-
         const encodedArgs = encodeURIComponent(JSON.stringify(args));
-
         const commandUri = `command:error-expander.explain?${encodedArgs}`;
 
-
-
         const markdown = new vscode.MarkdownString();
-
         markdown.isTrusted = true;
-
         markdown.appendMarkdown(`--- \n\n🤖 **Error Expander:** [💡 คลิกที่นี่เพื่ออธิบาย Error นี้ด้วย AI](${commandUri})`);
 
-
-
         return new vscode.Hover(markdown);
-
     }
-
 }
 
-
-
-// ฟังก์ชัน HTML สำหรับ Webview Panel (ดีไซน์เดิมที่คุณเลือกไว้)
-
-function getWebviewContent(content: string) {
-    // แยกข้อความด้วย ``` (Code Block Markdown)
-    // index คู่ (0, 2, 4...) จะเป็นข้อความปกติ
-    // index คี่ (1, 3, 5...) จะเป็นโค้ด
+// ---------------------------------------------------------
+// ฟังก์ชันแปลงข้อความธรรมดาให้กลายเป็น HTML สวยๆ
+// ---------------------------------------------------------
+function parseResponseToHtml(content: string) {
     const parts = content.split(/```/);
     let processedHtml = '';
 
@@ -345,7 +183,6 @@ function getWebviewContent(content: string) {
                 .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
         } else {
             // ส่วนที่เป็น Code Block
-            // ตัดชื่อภาษาบรรทัดแรกออก (เช่น typescript, javascript) ถ้ามี
             const codeContent = parts[i].replace(/^[a-z]*\n/i, ''); 
             const cleanCode = codeContent.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;");
             
@@ -379,8 +216,13 @@ function getWebviewContent(content: string) {
             `;
         }
     }
+    return processedHtml;
+}
 
-    // นำ processedHtml ไปใส่ใน HTML Template ตัวเดิมของคุณ
+// ---------------------------------------------------------
+// ฟังก์ชันสร้างโครงหน้าเว็บ (เพื่อรอรับข้อความจาก Stream)
+// ---------------------------------------------------------
+function getLoadingWebviewHtml() {
     return `<!DOCTYPE html>
     <html lang="th">
     <head>
@@ -391,7 +233,6 @@ function getWebviewContent(content: string) {
                 --card-border: var(--vscode-widget-border);
                 --accent: var(--vscode-textLink-foreground);
             }
-            /* ... โค้ด CSS เดิมของคุณ ... */
             body { font-family: var(--vscode-font-family), -apple-system, sans-serif; padding: 20px 16px; color: var(--vscode-editor-foreground); background-color: var(--vscode-editor-background); line-height: 1.7; }
             .ai-badge { display: inline-flex; align-items: center; padding: 4px 12px; background: rgba(77, 170, 252, 0.15); color: var(--accent); border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-bottom: 15px; }
             .card { background-color: var(--card-bg); padding: 24px; border-radius: 12px; border: 1px solid var(--card-border); box-shadow: 0 15px 35px rgba(0,0,0,0.3); }
@@ -405,16 +246,29 @@ function getWebviewContent(content: string) {
             .copy-btn { display: flex; align-items: center; gap: 6px; background: var(--vscode-button-secondaryBackground); border: none; border-radius: 4px; color: var(--vscode-button-secondaryForeground); cursor: pointer; padding: 6px 12px; font-size: 0.75rem; transition: 0.2s; }
             .copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
             .copy-btn.copied { background: #27c93f; color: #000; }
+            
+            /* อนิเมชันตัวอักษรกะพริบตอนโหลด */
+            @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+            .loading { font-style: italic; opacity: 0.7; animation: pulse 1.5s infinite; }
         </style>
     </head>
     <body>
         <div class="ai-badge">AI ERROR ANALYSIS</div>
-        <div class="card">
-            ${processedHtml}
+        <div class="card" id="content-container">
+            <div class="loading">✨ กำลังเชื่อมต่อกับ AI และวิเคราะห์โค้ด...</div>
         </div>
 
         <script>
-            // (ใส่สคริปต์ copyCode ตัวเดิมของคุณได้เลย)
+            // รอรับข้อความที่ AI สตรีมมา
+            const container = document.getElementById('content-container');
+            window.addEventListener('message', event => {
+                const message = event.data;
+                if (message.command === 'update') {
+                    container.innerHTML = message.html;
+                }
+            });
+
+            // ฟังก์ชันก๊อปปี้โค้ด
             function copyCode(btnElement) {
                 const wrapper = btnElement.closest('.code-block-wrapper');
                 const codeText = wrapper.querySelector('.hidden-code').innerText;
